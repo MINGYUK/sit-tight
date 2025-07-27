@@ -1,0 +1,29 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Posture Pro</title>
+    <link rel="stylesheet" href="style.css">
+    <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22><text y=%22.9em%22 font-size=%2224%22>🧘</text></svg>">
+
+    <script type="module" src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.js"
+    crossorigin="anonymous"></script>
+    
+</head>
+<body>
+    <h1>Posture Pro: Sit Straight!</h1>
+
+    <div class="container">
+        <video id="webcamVideo" autoplay playsinline></video>
+        <canvas id="outputCanvas"></canvas>
+    </div>
+
+    <div class="controls">
+        <button id="startCameraButton">Start Camera</button>
+        <p id="statusMessage">Camera not started.</p>
+    </div>
+
+    <script type="module" src="script.js"></script>
+</body>
+</html>
