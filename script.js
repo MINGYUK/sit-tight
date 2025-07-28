@@ -14,6 +14,24 @@ let poseLandmarker = undefined; // Will hold our PoseLandmarker instance
 let runningMode = "VIDEO"; // MediaPipe running mode for live video
 let lastVideoTime = -1; // To ensure we only process new video frames
 
+// --- New Posture Detection Variables ---
+// Store timestamped vertical distances for dynamic comparison
+const VERTICAL_DISTANCE_HISTORY_DURATION_MS = 2500; // Keep history for 2.5 seconds
+const INITIAL_CALIBRATION_DURATION_MS = 5000; // Assume good posture for the first 5 seconds
+let poseDataHistory = []; // Stores { timestamp: ms, leftEarY: y, leftShoulderY: y, rightEarY: y, rightShoulderY: y }
+let startTime = null; // To track calibration duration
+
+const VERTICAL_DECREASE_PERCENTAGE_THRESHOLD = 0.10; // 10% decrease
+const SLOUCH_PERSISTENCE_FRAMES = 10; // How many consecutive frames of bad posture to trigger alert (remains for stability)
+let consecutiveSlouchFrames = 0;
+
+// Function to calculate simple vertical distance (y-coordinate difference)
+function calculateVerticalDistance(point1, point2) {
+    if (!point1 || !point2) return 0;
+    // We care about the absolute difference in y-coordinates
+    return Math.abs(point1.y - point2.y);
+}
+
 // Initialize the PoseLandmarker model
 async function createPoseLandmarker() {
     statusMessage.textContent = "Loading AI model...";
@@ -22,7 +40,11 @@ async function createPoseLandmarker() {
     );
     poseLandmarker = await PoseLandmarker.createFromOptions(vision, {
         baseOptions: {
-            modelAssetPath: "app/shared/models/pose_landmarker_full.task", // Path to the model file
+            // Using the full model by default.
+            // Switch to 'pose_landmarker_lite.task' for better performance on less powerful devices (e.g., phones).
+            // Use API for ease of use, or download the model file and provide the path.
+            modelAssetPath: "https://storage.googleapis.com/mediapipe-models/pose_landmarker/pose_landmarker_full/float16/1/pose_landmarker_full.task",
+            // modelAssetPath: "app/models/pose_landmarker_full.task", // Local path to the model
             delegate: "GPU" // Try "GPU" for better performance, fallbacks to "CPU"
         },
         runningMode: runningMode,
@@ -40,16 +62,21 @@ async function enableCam() {
     }
 
     statusMessage.textContent = "Requesting camera access...";
-    // Get user media (webcam access)
-    const constraints = { video: true }; // Request video only
+    const constraints = { video: true };
 
     try {
         const stream = await navigator.mediaDevices.getUserMedia(constraints);
         videoElement.srcObject = stream;
-        videoElement.addEventListener("loadeddata", predictWebcam); // Start prediction once video data loads
+        videoElement.addEventListener("loadeddata", () => {
+            startTime = performance.now(); // Record start time for calibration
+            predictWebcam(); // Start prediction once video data loads
+        });
         statusMessage.textContent = "Camera started. Adjust your position.";
         startCameraButton.textContent = "Camera On";
         startCameraButton.disabled = true; // Disable button once camera starts
+        // Reset state for new session
+        poseDataHistory = [];
+        consecutiveSlouchFrames = 0;
     } catch (err) {
         statusMessage.textContent = `Error accessing camera: ${err.name} - ${err.message}. Please allow camera access.`;
         console.error("Error accessing camera:", err);
@@ -58,63 +85,120 @@ async function enableCam() {
 
 // Prediction loop
 async function predictWebcam() {
-    // Set canvas dimensions to match video
     canvasElement.style.width = videoElement.videoWidth + "px";
     canvasElement.style.height = videoElement.videoHeight + "px";
     canvasElement.width = videoElement.videoWidth;
     canvasElement.height = videoElement.videoHeight;
 
-    let startTimeMs = performance.now(); // Get current timestamp for MediaPipe
+    let currentTime = performance.now(); // Get current timestamp for MediaPipe and history tracking
 
-    // Only process new video frames
     if (lastVideoTime !== videoElement.currentTime) {
         lastVideoTime = videoElement.currentTime;
-        poseLandmarker.detectForVideo(videoElement, startTimeMs, (result) => {
+        poseLandmarker.detectForVideo(videoElement, currentTime, (result) => {
             canvasCtx.save();
-            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height); // Clear previous drawings
-
-            // Draw the video frame on the canvas (important for mirroring effect)
-            // Note: drawingUtils.drawConnectors and drawLandmarks will automatically handle mirroring
-            // if the video element itself is mirrored with transform: scaleX(-1);
+            canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
             canvasCtx.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
 
+            let isCurrentlySlouching = false;
+            let currentDisplayColor = '#00FF00'; // Default good posture color
+
             if (result.landmarks && result.landmarks.length > 0) {
-                for (const landmark of result.landmarks) {
-                    // Draw the skeleton and landmarks
-                    drawingUtils.drawConnectors(landmark, PoseLandmarker.POSE_CONNECTIONS, { color: '#00FF00', lineWidth: 4 });
-                    drawingUtils.drawLandmarks(landmark, { color: '#FF0000', lineWidth: 2 });
+                const landmark = result.landmarks[0]; // Assuming one person
 
-                    // --- Posture Analysis Logic (to be expanded) ---
-                    // Example: Check for forward head posture
-                    const leftShoulder = landmark[11]; // MediaPipe landmark indices
-                    const rightShoulder = landmark[12];
-                    const leftEar = landmark[7];
-                    const rightEar = landmark[8];
+                // Store current landmark data for history
+                // indices: leftEar: 7, leftShoulder: 11, rightEar: 8, rightShoulder: 12
+                const leftEar = landmark[7];
+                const leftShoulder = landmark[11];
+                const rightEar = landmark[8];
+                const rightShoulder = landmark[12];
 
-                    // Simple check: Is the ear significantly in front of the shoulder?
-                    // This is very basic and will need refinement!
-                    // Coordinates are normalized 0-1, so differences are small.
-                    const isSlouching = (leftEar.x > leftShoulder.x + 0.03) || (rightEar.x < rightShoulder.x - 0.03); // Assuming mirrored view
+                if (leftEar && leftShoulder && rightEar && rightShoulder) {
+                    const currentLeftVerticalDist = calculateVerticalDistance(leftEar, leftShoulder);
+                    const currentRightVerticalDist = calculateVerticalDistance(rightEar, rightShoulder);
+                    const currentAverageVerticalDist = (currentLeftVerticalDist + currentRightVerticalDist) / 2;
 
-                    if (isSlouching) {
-                        statusMessage.textContent = "Slouching! Sit straight!";
-                        // You'd add your sound playing logic here
-                        // For now, let's change the skeleton color to red
-                        drawingUtils.drawConnectors(landmark, PoseLandmarker.POSE_CONNECTIONS, { color: '#FF0000', lineWidth: 4 });
-                        drawingUtils.drawLandmarks(landmark, { color: '#FF0000', lineWidth: 2 });
-                        playAlertSound(); // Function to be defined
+                    // Add current pose data to history
+                    poseDataHistory.push({
+                        timestamp: currentTime,
+                        verticalDist: currentAverageVerticalDist
+                    });
+
+                    // Prune old data from history
+                    poseDataHistory = poseDataHistory.filter(data => currentTime - data.timestamp < VERTICAL_DISTANCE_HISTORY_DURATION_MS);
+
+                    // --- Posture Analysis Logic ---
+                    if (currentTime - startTime < INITIAL_CALIBRATION_DURATION_MS) {
+                        // Calibration period
+                        statusMessage.textContent = `Calibrating good posture... (${Math.ceil((INITIAL_CALIBRATION_DURATION_MS - (currentTime - startTime)) / 1000)}s left)`;
+                        currentDisplayColor = '#00FFFF'; // Cyan for calibration
+                        consecutiveSlouchFrames = 0; // Ensure no alerts during calibration
+                    } else if (poseDataHistory.length > 0) {
+                        // Get average vertical distance from the recent past (e.g., 2 seconds ago)
+                        const referenceTime = currentTime - VERTICAL_DISTANCE_HISTORY_DURATION_MS;
+                        const relevantPastData = poseDataHistory.filter(data => data.timestamp < referenceTime);
+
+                        if (relevantPastData.length > 0) {
+                            const sumPastDist = relevantPastData.reduce((acc, data) => acc + data.verticalDist, 0);
+                            const averagePastDist = sumPastDist / relevantPastData.length;
+
+                            if (averagePastDist > 0) { // Avoid division by zero
+                                const decreasePercentage = (averagePastDist - currentAverageVerticalDist) / averagePastDist;
+
+                                if (decreasePercentage > VERTICAL_DECREASE_PERCENTAGE_THRESHOLD) {
+                                    isCurrentlySlouching = true;
+                                    // console.log(`Slouch detected! Decrease: ${(decreasePercentage * 100).toFixed(2)}%`);
+                                }
+                            }
+                        } else {
+                            // Not enough history to compare yet, assume good posture
+                            statusMessage.textContent = "Building history...";
+                        }
+                    }
+
+                    if (isCurrentlySlouching) {
+                        consecutiveSlouchFrames++;
+                        if (consecutiveSlouchFrames >= SLOUCH_PERSISTENCE_FRAMES) {
+                            statusMessage.textContent = "Slouching! Sit straight!";
+                            currentDisplayColor = '#FF0000'; // Red for confirmed slouch
+                            playAlertSound();
+                        } else {
+                            // Still show orange if slouching, but not enough to alert yet
+                            currentDisplayColor = '#FFA500'; // Orange for detected but not alerted
+                            statusMessage.textContent = `Slouch detected... (${SLOUCH_PERSISTENCE_FRAMES - consecutiveSlouchFrames} frames left)`;
+                        }
                     } else {
                         statusMessage.textContent = "Good posture!";
+                        consecutiveSlouchFrames = 0; // Reset counter if posture is good
+                        currentDisplayColor = '#00FF00'; // Green for good posture
                     }
+                } else {
+                    // Not all required landmarks detected
+                    statusMessage.textContent = "Adjust to see your ears and shoulders!";
+                    consecutiveSlouchFrames = 0; // Reset
+                    currentDisplayColor = '#FFFF00'; // Yellow if landmarks are missing
                 }
+
+                // Draw the skeleton and landmarks with updated color
+                drawingUtils.drawConnectors(landmark, PoseLandmarker.POSE_CONNECTIONS, {
+                    color: currentDisplayColor,
+                    lineWidth: 4
+                });
+                drawingUtils.drawLandmarks(landmark, {
+                    color: currentDisplayColor,
+                    lineWidth: 2
+                });
+
             } else {
                 statusMessage.textContent = "No person detected. Please adjust your position.";
+                consecutiveSlouchFrames = 0; // Reset if no person detected
+                poseDataHistory = []; // Clear history
+                startTime = currentTime; // Reset start time if person disappears
+                currentDisplayColor = '#808080'; // Grey if no person
             }
             canvasCtx.restore();
         });
     }
 
-    // Call this function again to continuously process frames
     window.requestAnimationFrame(predictWebcam);
 }
 
@@ -128,7 +212,6 @@ function playAlertSound() {
         setTimeout(() => { soundPlaying = false; }, 3000); // Cooldown for 3 seconds
     }
 }
-
 
 // Event listener for the start camera button
 startCameraButton.addEventListener('click', enableCam);
