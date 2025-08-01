@@ -4,9 +4,107 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Posture Pro</title>
-    <link rel="stylesheet" href="style.css">
     <link rel="icon" href="data:image/svg+xml,<svg xmlns=%22http://www.w3.org/2000/svg%22 viewBox=%220 0 24 24%22><text y=%22.9em%22 font-size=%2224%22>🧘</text></svg>">
 
+    <style>
+        body {
+            font-family: sans-serif;
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            padding: 20px;
+            background-color: #f0f0f0;
+        }
+
+        h1 {
+            color: #333;
+            margin-bottom: 20px;
+        }
+
+        /* Main container for the two-column layout */
+        .main-content {
+            display: flex;
+            flex-direction: row; /* Aligns children (camera and controls) side-by-side */
+            gap: 20px;
+            width: 100%;
+            max-width: 1200px; /* Optional: Sets a max width for the whole app */
+            justify-content: center;
+            align-items: flex-start; /* Aligns items to the top */
+        }
+
+        /* Container for the video and status message */
+        .camera-container {
+            display: flex;
+            flex-direction: column;
+            align-items: center;
+            flex-grow: 1; /* Allows this container to take up available space */
+            max-width: 600px;
+        }
+        
+        #statusMessage {
+            font-size: 1.2em;
+            font-weight: bold;
+            color: #555;
+            margin-bottom: 10px;
+            text-align: center;
+        }
+
+        .container {
+            position: relative;
+            width: 100%; /* Ensures video and canvas fill the container */
+            border: 2px solid #333;
+            border-radius: 8px;
+            overflow: hidden;
+            box-shadow: 0 4px 8px rgba(0,0,0,0.1);
+        }
+        
+        #webcamVideo, #outputCanvas {
+            width: 100%;
+            height: auto;
+            display: block;
+        }
+        
+        #outputCanvas {
+            position: absolute;
+            top: 0;
+            left: 0;
+            z-index: 10;
+        }
+
+        /* Container for the buttons */
+        .controls {
+            display: flex;
+            flex-direction: column; /* Stacks buttons vertically */
+            gap: 10px;
+            padding: 20px;
+            border: 1px solid #ddd;
+            border-radius: 8px;
+            background-color: #fff;
+            align-self: stretch; /* Makes the button container stretch to fill the height */
+            flex-shrink: 0; /* Prevents the buttons from shrinking */
+        }
+
+        .controls button {
+            padding: 12px 20px;
+            font-size: 1em;
+            cursor: pointer;
+            border: none;
+            border-radius: 6px;
+            color: #fff;
+            background-color: #007BFF;
+            transition: background-color 0.3s ease;
+        }
+
+        .controls button:hover:enabled {
+            background-color: #0056b3;
+        }
+
+        .controls button:disabled {
+            background-color: #ccc;
+            cursor: not-allowed;
+        }
+    </style>
+    
     <script type="module" src="https://cdn.jsdelivr.net/npm/@mediapipe/tasks-vision/vision_bundle.js"
     crossorigin="anonymous"></script>
     
@@ -14,14 +112,21 @@
 <body>
     <h1>Posture Pro: Sit Straight!</h1>
 
-    <div class="container">
-        <video id="webcamVideo" autoplay playsinline></video>
-        <canvas id="outputCanvas"></canvas>
-    </div>
+    <div class="main-content">
+        <div class="camera-container">
+            <p id="statusMessage">Page is loaded</p>
+            <div class="container">
+                <video id="webcamVideo" autoplay playsinline></video>
+                <canvas id="outputCanvas"></canvas>
+            </div>
+        </div>
 
-    <div class="controls">
-        <button id="startCameraButton">Start Camera</button>
-        <p id="statusMessage">Page is loaded</p>
+        <div class="controls">
+            <button id="startCameraButton">Start Camera</button>
+            <button id="toggleVisualizationButton">Toggle Video Feedback</button>
+            <button id="toggleTrackingButton">Pause Tracking</button>
+            <button id="recalibrateButton">Recalibrate Posture</button>
+        </div>
     </div>
 
     <script type="module" src="script.js"></script>
