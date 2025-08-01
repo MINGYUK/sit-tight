@@ -47,6 +47,11 @@ function drawCanvas(landmarks, color) {
     if (isVisualizationEnabled) {
         canvasCtx.drawImage(videoElement, 0, 0, canvasElement.width, canvasElement.height);
     }
+    else {
+        // If visualization is off, fill the canvas with a grey background
+        canvasCtx.fillStyle = '#808080'; // Grey background
+        canvasCtx.fillRect(0, 0, canvasElement.width, canvasElement.height);
+    }
 
     // Draw landmarks if they exist and we are visualizing
     if (landmarks && isVisualizationEnabled) {
@@ -122,6 +127,7 @@ function startCalibration() {
     statusMessage.textContent = `Calibrating good posture... Stand straight for ${CALIBRATION_DURATION_SECONDS} seconds.`;
     toggleTrackingButton.disabled = true;
     recalibrateButton.disabled = true;
+    toggleVisualizationButton.disabled = true;
 
     let countdown = CALIBRATION_DURATION_SECONDS;
     calibrationIntervalId = setInterval(() => {
@@ -160,6 +166,7 @@ function startCalibration() {
             }
             toggleTrackingButton.disabled = false;
             recalibrateButton.disabled = false;
+            toggleVisualizationButton.disabled = false;
         }
     }, 1000); // Run every second
 }
@@ -199,6 +206,15 @@ function startPostureCheck() {
                     playAlertSound();
                 } else {
                     statusMessage.textContent = "Good posture!";
+                    // Visualize coordinates if visualization is enabled
+                    if (isVisualizationEnabled) {
+                        currentDisplayColor = '#00FF00'; // Green for good posture
+                        // Draw the landmarks with the current color
+                        drawCanvas(landmark, currentDisplayColor);
+                    }
+                    else {
+                        // Do nothing if visualization is off
+                    }
                 }
             } else {
                 statusMessage.textContent = "Adjust to see your ears and shoulders!";
@@ -236,7 +252,11 @@ toggleVisualizationButton.addEventListener('click', () => {
     toggleVisualizationButton.textContent = isVisualizationEnabled ? 'Coordinate visualization off' : 'Coordinate visualization on';
     // When turning off visualization, clear the canvas
     if (!isVisualizationEnabled) {
-        canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+        // canvasCtx.clearRect(0, 0, canvasElement.width, canvasElement.height);
+        // Clear canvas with a grey background
+        canvasCtx.fillStyle = '#808080'; // Grey background
+        canvasCtx.fillRect(0, 0, canvasElement.width, canvasElement.height);
+        statusMessage.textContent = "Visualization turned off.";
     } else {
         // Force a redraw to show the current state
         startPostureCheck();
